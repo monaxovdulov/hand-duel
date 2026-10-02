@@ -9,6 +9,7 @@ export interface NetEvents {
   onBlocked(spellId: string): void; // my projectile was blocked by opponent's shield
   onHp(hp: number): void; // authoritative opponent HP
   onKo(): void;
+  onRematch(): void; // peer pressed "rematch"
   onPeerStream(stream: MediaStream, peerId: string): void;
 }
 
@@ -24,11 +25,13 @@ export class Session {
     const blocked = this.room.makeAction<string>("block");
     const hp = this.room.makeAction<number>("hp");
     const ko = this.room.makeAction<string>("ko");
+    const rematch = this.room.makeAction<string>("rematch");
 
     cast.onMessage = (msg, ctx) => events.onCast(msg, ctx.peerId);
     blocked.onMessage = (spellId) => events.onBlocked(spellId);
     hp.onMessage = (v) => events.onHp(v);
     ko.onMessage = () => events.onKo();
+    rematch.onMessage = () => events.onRematch();
 
     this.room.onPeerJoin = (id) => {
       events.onPeerJoin(id);
@@ -42,12 +45,14 @@ export class Session {
     this.sendBlocked = (s) => void blocked.send(s).catch(() => {});
     this.sendHp = (v) => void hp.send(v).catch(() => {});
     this.sendKo = () => void ko.send("").catch(() => {});
+    this.sendRematch = () => void rematch.send("").catch(() => {});
   }
 
   sendCast: (msg: CastMsg) => void;
   sendBlocked: (spellId: string) => void;
   sendHp: (hp: number) => void;
   sendKo: () => void;
+  sendRematch: () => void;
 
   /** Publish our camera stream to peers (re-called automatically for late joiners). */
   streamVideo(stream: MediaStream): void {

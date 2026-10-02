@@ -24,14 +24,17 @@
 
 | Файл | Роль |
 |---|---|
-| `main.ts` | Бутстрап: лобби (`#join`), камера, `Effects`, `Session`, `Game`, `Tracker`, rAF-цикл, DOM-HUD |
+| `main.ts` | Бутстрап + машина фаз (`lobby/loading/waiting/fight/over`), отсчёт, реванш, wake lock, resize по `visualViewport` |
+| `layout.ts` | `computeLayout()` — чистая адаптивная раскладка: выбор `stack`/`side` по площади видео (гистерезис 8%), кроп ≤ `MAX_CROP`, зоны HUD, `compact` |
+| `hud.ts` | `Hud` (реализует `GameUi`): таблички HP, спелбар с кулдаунами и подсветкой жеста, тосты арены, индикатор края кадра, оверлеи loading/waiting/paused/over |
+| `qr.ts` | Минимальный QR-энкодер (byte mode, ECC L, v1–5) — ссылка на комнату |
 | `tracker.ts` | `openCamera()`, класс `Tracker`: инференс в Web Worker (ImageBitmap transfer, drop-frame если воркер занят), фолбэк на main thread |
 | `tracker.worker.ts` | Воркер с GestureRecognizer; тип `TrackedHand` (landmarks нормализованы в сыром пространстве камеры, НЕ зеркальны) |
 | `mediapipe.ts` | Ручные типы MediaPipe, `createRecognizer` (GPU → фолбэк CPU), `mediapipeAssets()` |
-| `spells.ts` | Таблица `SPELLS`, `GestureInterpreter` (edge-trigger + кулдаун), `shieldPalm`, `isFrameHand` (L-поза), `portalQuadPoints`, `palmCenter` |
-| `game.ts` | Игровая логика: сглаживание ладоней, щит, портал, касты, коллизии, HP, KO |
-| `net.ts` | Обёртка `Session` над trystero: экшены `cast/block/hp/ko`, `streamVideo()` / `onPeerStream` |
-| `effects.ts` | three.js сцена: видео-панели (cover-crop), снаряды с трейлами, бёрсты, щит-кольцо, портал (шейдер), вспышки урона; `camToScreen()` |
+| `spells.ts` | Таблица `SPELLS`, `GestureInterpreter` (edge-trigger + кулдаун + `cooldownLeft`), `shieldPalm`, `isFrameHand` (L-поза), `portalQuadPoints`, `palmCenter` |
+| `game.ts` | Игровая логика: сглаживание ладоней, щит, портал, касты, коллизии, HP, KO; флаги `armed` (нет-рассылка) и `locked` (отсчёт), `reset()` для реванша |
+| `net.ts` | Обёртка `Session` над trystero: экшены `cast/block/hp/ko/rematch`, `streamVideo()` / `onPeerStream` |
+| `effects.ts` | three.js сцена: видео-панели по `LayoutResult` (cover-crop ≤10%), снаряды по траекториям панелей, щит, портал, вспышки; `camToScreen()`, `onLayout` → HUD |
 
 ## Системы координат (важно, частый источник багов)
 
@@ -40,6 +43,7 @@
 - **Мир three.js:** те же пиксели, но **y вверх** (`Effects.wy(py) = h - py`). Ортокамера `0..w × 0..h`.
 - Перевод камера → экран делается ТОЛЬКО через `Effects.camToScreen(nx, ny)`: он учитывает кроп и зеркалирование. Никогда не считать `nx * width` вручную.
 - По сети `CastMsg.x` — нормализованный **зеркальный** x отправителя; получатель зеркалит ещё раз (`1 - x`), потому что игроки смотрят друг на друга.
+- Раскладка панелей — только через `computeLayout()` в `layout.ts`; прямоугольники `me/foe` приходят из `Effects.layoutResult`. В `side` соперник слева (`FOE_LEFT`), снаряды летят горизонтально.
 
 ## Сетевая модель
 

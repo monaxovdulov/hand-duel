@@ -22,7 +22,7 @@ export const SPELLS: Record<string, Spell> = {
 };
 
 export const SHIELD_GESTURE = "Open_Palm";
-const MIN_SCORE = 0.5;
+export const MIN_SCORE = 0.5;
 
 // --- landmark indices ---
 const WRIST = 0;
@@ -120,6 +120,19 @@ export class GestureInterpreter {
 
     this.active = seen;
     return intent;
+  }
+
+  /** Remaining cooldown of a spell as a fraction 0..1 (0 = ready). */
+  cooldownLeft(spellId: string, now: number): number {
+    const spell = SPELLS[spellId];
+    const until = this.cooldownUntil.get(spellId) ?? 0;
+    if (!spell || now >= until) return 0;
+    return (until - now) / (spell.cooldown * 1000);
+  }
+
+  reset(): void {
+    this.active.clear();
+    this.cooldownUntil.clear();
   }
 }
 

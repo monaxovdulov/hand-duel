@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Spell } from "./spells";
+import { computeLayout, type LayoutResult, type SafeInsets } from "./layout";
 
 export interface Projectile {
   spell: Spell;
@@ -34,6 +35,8 @@ interface Crop {
   fw: number;
   fh: number;
 }
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 /** Cover-fit crop: which part of the texture fills the region. */
 function coverCrop(vw: number, vh: number, reg: Rect): Crop {
@@ -139,10 +142,20 @@ export class Effects {
   get height(): number {
     return this.h;
   }
+  /** env(safe-area-inset-*) — set by main before resize. */
+  safe: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  private lay: LayoutResult | null = null;
+  get layoutResult(): LayoutResult | null {
+    return this.lay;
+  }
+  /** Fired after every re-layout (resize, opponent stream metadata, rotation). */
+  onLayout: ((lay: LayoutResult) => void) | null = null;
+  /** Radius multiplier: spell/shield sizes scale with the own panel size. */
+  sizeScale = 1;
   shieldActive = false;
   shieldX = 0;
   shieldY = 0;
-  readonly shieldRadius = 120;
+  shieldRadius = 120;
   /** Portal quad corners in world coords (y-up), or null when closed. */
   portalQuad: { x: number; y: number }[] | null = null;
   private portalMesh!: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
@@ -246,6 +259,11 @@ export class Effects {
     this.layout();
   }
 
+  /** Whether the opponent's video texture is attached. */
+  get hasOpponent(): boolean {
+    return this.foeTex !== null;
+  }
+
   /** Attach the opponent's camera stream — shown in the top half and inside the portal. */
   setOpponentVideo(video: HTMLVideoElement): void {
     if (this.foeTex) this.foeTex.dispose();
@@ -260,6 +278,7 @@ export class Effects {
     const relayout = () => this.layout();
     if (video.videoWidth) relayout();
     video.addEventListener("loadedmetadata", relayout);
+    video.addEventListener("resize", relayout); // phone rotation changes aspect mid-stream
   }
 
   resize(w: number, h: number): void {
@@ -277,9 +296,19 @@ export class Effects {
   private layout(): void {
     const w = this.w;
     const h = this.h;
-    // split: opponent top, me bottom — two equal halves
-    this.foeRect = { x: 0, y: 0, w, h: h / 2 };
-    this.meRect = { x: 0, y: h / 2, w, h: h - h / 2 };
+    const vw = this.video.videoWidth || 1280;
+    const vh = this.video.videoHeight || 720;
+    const fv = this.foeTex?.image as HTMLVideoElement | undefined;
+    const foeAspect = fv?.videoWidth ? fv.videoWidth / fv.videoHeight : vw / vh;
+
+    const lay = computeLayout(
+      { vw: w, vh: h, meAspect: vw / vh, foeAspect, safe: this.safe },
+      this.lay?.orientation,
+    );
+    this.lay = lay;
+    this.meRect = lay.me;
+    this.foeRect = lay.foe;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, lay.compact ? 1.5 : 2));
 
     const place = (mesh: THREE.Mesh<THREE.PlaneGeometry>, r: Rect) => {
       mesh.scale.set(r.w, r.h, 1);
@@ -288,17 +317,13 @@ export class Effects {
     place(this.me, this.meRect);
     place(this.foe, this.foeRect);
 
-    // cover crops
-    const vw = this.video.videoWidth || 1280;
-    const vh = this.video.videoHeight || 720;
     this.meCrop = coverCrop(vw, vh, this.meRect);
     const setCrop = (tex: THREE.VideoTexture, c: Crop, mirror: boolean) => {
       tex.repeat.set(mirror ? -c.fw : c.fw, c.fh);
       tex.offset.set(mirror ? 1 - c.u0 : c.u0, c.v0);
     };
     setCrop(this.meTex!, this.meCrop, true);
-    if (this.foeTex) {
-      const fv = (this.foeTex.image as HTMLVideoElement);
+    if (this.foeTex && fv) {
       this.foeCrop = coverCrop(fv.videoWidth || 640, fv.videoHeight || 480, this.foeRect);
       setCrop(this.foeTex, this.foeCrop, false);
     }
@@ -309,8 +334,24 @@ export class Effects {
       this.foeCrop.u0, this.foeCrop.v0, this.foeCrop.fw, this.foeCrop.fh,
     );
 
+    // gameplay sizes follow the own panel size, not the raw window
+    this.sizeScale = Math.min(lay.me.w, lay.me.h) / 540;
+    this.shieldRadius = Math.max(40, 0.14 * Math.min(lay.me.w, lay.me.h));
+    this.shield.scale.setScalar(this.shieldRadius * 2);
+
     this.flash.scale.set(w, h, 1);
     this.flash.position.set(w / 2, this.wy(h / 2), 20);
+
+    this.onLayout?.(lay);
+  }
+
+  /** Clamp a screen-coords point into the own panel (with padding). */
+  clampMe(x: number, y: number, pad = 8): { x: number; y: number } {
+    const r = this.meRect;
+    return {
+      x: clamp(x, r.x + pad, r.x + r.w - pad),
+      y: clamp(y, r.y + pad, r.y + r.h - pad),
+    };
   }
 
   /**
@@ -393,7 +434,7 @@ export class Effects {
       new THREE.PointsMaterial({
         map: this.texFor(spell),
         color: spell.color,
-        size: spell.radius * 0.7,
+        size: spell.radius * 0.7 * this.sizeScale,
         transparent: true,
         opacity: 0.45,
         blending: THREE.AdditiveBlending,
@@ -428,32 +469,85 @@ export class Effects {
     return p;
   }
 
-  /** Own cast: flies up from the hand into the opponent's half, shrinking away. px = screen coords. */
+  private exits = new Map<string, { x: number; y: number }>();
+
+  /**
+   * Point where the projectile of a given spell left the own panel, in world coords.
+   * Uses the stored exit of the last cast; falls back to the deterministic edge point
+   * derived from the normalized cast position nx (exact in stack, centered in side).
+   */
+  outgoingExitPoint(spellId: string, nx: number): { x: number; y: number } {
+    const stored = this.exits.get(spellId);
+    if (stored) return stored;
+    const r = this.meRect;
+    const cx = r.x + r.w / 2;
+    if (this.lay?.orientation === "side") {
+      return { x: r.x - 6, y: this.wy(r.y + r.h / 2) };
+    }
+    const px = this.camToScreen(1 - nx, 0).x;
+    return { x: cx + (px - cx) * 0.4, y: this.wy(r.y - 6) };
+  }
+
+  /** Own cast: from the hand toward the panel edge facing the opponent, shrinking away. px = screen coords. */
   spawnOutgoing(spell: Spell, px: number, py: number): void {
+    const r = this.meRect;
+    const c = this.clampMe(px, py, 8);
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    const t =
+      this.lay?.orientation === "side"
+        ? { x: r.x - 6, y: cy + (c.y - cy) * 0.4 }
+        : { x: cx + (c.x - cx) * 0.4, y: r.y - 6 };
+    this.exits.set(spell.id, { x: t.x, y: this.wy(t.y) });
     this.spawn(spell, {
-      fromX: px,
-      fromY: this.wy(py),
-      toX: this.w / 2 + (px - this.w / 2) * 0.4,
-      toY: this.wy(this.h * 0.44), // just past the half boundary
+      fromX: c.x,
+      fromY: this.wy(c.y),
+      toX: t.x,
+      toY: this.wy(t.y),
       life: 0.55,
       fromScale: 1.6,
       toScale: 0.45,
     });
   }
 
-  /** Opponent's cast arriving: grows out of their half down toward the viewer. nx already mirrored. */
+  /**
+   * Opponent's cast arriving: grows out of their panel edge facing us, toward the viewer.
+   * nx = position along that edge (horizontal in stack, vertical in side); already mirrored.
+   */
   spawnIncoming(spell: Spell, nx: number): Projectile {
-    const px = this.foeRect.x + nx * this.foeRect.w;
+    const f = this.foeRect;
+    const m = this.meRect;
+    let fromX: number, fromY: number, toX: number, toY: number;
+    if (this.lay?.orientation === "side") {
+      fromX = f.x + f.w - 4;
+      fromY = f.y + nx * f.h;
+      toX = m.x + m.w * 0.85;
+      toY = clamp(fromY + (Math.random() - 0.5) * m.h * 0.12, m.y + 8, m.y + m.h - 8);
+    } else {
+      fromX = f.x + nx * f.w;
+      fromY = f.y + f.h - 4;
+      toX = clamp(fromX + (Math.random() - 0.5) * m.w * 0.12, m.x + 8, m.x + m.w - 8);
+      toY = m.y + m.h * 0.85;
+    }
     return this.spawn(spell, {
       incoming: true,
-      fromX: px,
-      fromY: this.wy(this.foeRect.y + this.foeRect.h * 0.9),
-      toX: px + (Math.random() - 0.5) * this.w * 0.12,
-      toY: this.wy(this.h * 0.88),
+      fromX,
+      fromY: this.wy(fromY),
+      toX,
+      toY: this.wy(toY),
       life: spell.flightTime,
       fromScale: 0.5,
       toScale: 2.4,
     });
+  }
+
+  clearProjectiles(): void {
+    for (const p of this.projectiles) {
+      this.scene.remove(p.sprite, p.trail);
+      p.sprite.material.dispose();
+      p.trail.geometry.dispose();
+    }
+    this.projectiles = [];
   }
 
   burst(xWorld: number, yWorld: number, color: number, count = 40): void {
@@ -514,7 +608,7 @@ export class Effects {
       p.x = p.fromX + (p.toX - p.fromX) * ease;
       p.y = p.fromY + (p.toY - p.fromY) * ease;
       const s = p.fromScale + (p.toScale - p.fromScale) * ease;
-      const size = p.spell.radius * 2 * s;
+      const size = p.spell.radius * 2 * s * this.sizeScale;
       p.sprite.scale.set(size, size, 1);
       p.sprite.position.set(p.x, p.y, 10);
 

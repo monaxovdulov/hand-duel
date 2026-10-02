@@ -2,7 +2,10 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <title>Hand Duel</title>
     <link rel="icon" href="data:," />
     <style>
@@ -10,7 +13,7 @@
       body {
         margin: 0;
         height: 100%;
-        background: #000;
+        background: #04060d;
         overflow: hidden;
         font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
         color: #fff;
@@ -20,53 +23,405 @@
         position: fixed;
         inset: 0;
         width: 100vw;
-        height: 100vh;
+        height: 100dvh;
         display: block;
       }
       video {
         display: none;
       }
-      .hud {
-        position: fixed;
-        text-shadow: 0 1px 3px #000;
-        user-select: none;
+      button {
+        font: inherit;
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid #fff4;
+        background: #111;
+        color: #fff;
+        cursor: pointer;
       }
-      #hp-me,
-      #hp-foe {
-        top: 14px;
-        width: 38vw;
-        height: 14px;
-        border: 1px solid #fff5;
-        border-radius: 7px;
+
+      /* ---------- HUD ---------- */
+      #hud {
+        position: fixed;
+        inset: 0;
+        user-select: none;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #000;
+      }
+      #hud[hidden] {
+        display: none;
+      }
+      #hud > * {
+        position: absolute;
+      }
+
+      .plate {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        box-sizing: border-box;
+      }
+      .plate .tag {
+        font-size: clamp(12px, 1.6vh, 15px);
+        opacity: 0.85;
+        white-space: nowrap;
+      }
+      .plate .hpbar {
+        flex: 1;
+        height: 10px;
+        min-width: 50px;
+        border: 1px solid #fff4;
+        border-radius: 5px;
         overflow: hidden;
         background: #0008;
       }
-      #hp-me {
-        left: 16px;
-      }
-      #hp-foe {
-        right: 16px;
-        transform: scaleX(-1);
-      }
-      .hud .bar {
+      .plate .hpbar i {
+        display: block;
         height: 100%;
-        background: linear-gradient(90deg, #3fd26b, #b7f24a);
+        background: linear-gradient(90deg, #f2544a, #d23f9a);
         transition: width 0.25s;
       }
-      #hp-foe .bar {
-        background: linear-gradient(90deg, #f2544a, #d23f9a);
+      .plate.me .hpbar i {
+        background: linear-gradient(90deg, #3fd26b, #b7f24a);
       }
-      #status {
-        left: 16px;
-        bottom: 14px;
-        opacity: 0.8;
+      .plate .hpnum {
+        font-size: clamp(12px, 1.8vh, 16px);
+        min-width: 3ch;
+        text-align: right;
       }
-      #spell {
-        right: 16px;
-        bottom: 14px;
-        font-weight: 700;
+      .plate.shake {
+        animation: shake 0.3s;
+      }
+      @keyframes shake {
+        25% { transform: translateX(-4px); }
+        50% { transform: translateX(3px); }
+        75% { transform: translateX(-2px); }
+      }
+      .plate .float {
+        position: absolute;
+        right: 10px;
+        top: -4px;
+        font-size: clamp(14px, 2.4vh, 20px);
+        font-weight: 800;
+        color: #ff6a5e;
+        animation: floatup 0.9s ease-out forwards;
+        pointer-events: none;
+      }
+      .plate .float.heal {
+        color: #4df08a;
+      }
+      @keyframes floatup {
+        to {
+          transform: translateY(-22px);
+          opacity: 0;
+        }
+      }
+
+      #hud-me {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 0 6px;
+        box-sizing: border-box;
+      }
+      #hud-me .plate {
+        width: min(340px, 100%);
+        flex: none;
+      }
+
+      /* ---------- spellbar ---------- */
+      #spellbar {
+        display: flex;
+        gap: clamp(4px, 1vw, 12px);
+        justify-content: center;
+        align-items: flex-start;
+        flex: 1;
+        min-height: 0;
+      }
+      .sp {
+        position: relative;
+        text-align: center;
+        width: clamp(40px, 6vh, 60px);
+      }
+      .sp .ico {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: clamp(36px, 5vh, 48px);
+        height: clamp(36px, 5vh, 48px);
+        border-radius: 12px;
+        background: #0007;
+        border: 1px solid #fff2;
+        transition: box-shadow 0.15s;
+      }
+      .sp .emo {
+        font-size: clamp(18px, 2.8vh, 26px);
+        line-height: 1;
+        opacity: 0.45;
+        transition:
+          opacity 0.15s,
+          transform 0.15s;
+      }
+      .sp .cd {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: conic-gradient(transparent calc((1 - var(--cd, 0)) * 360deg), #04060cd8 0);
+        pointer-events: none;
+      }
+      .sp .nm {
+        display: block;
+        font-size: clamp(10px, 1.4vh, 12px);
+        opacity: 0.6;
+        white-space: nowrap;
+      }
+      /* recognized gesture */
+      .sp.lit .emo {
+        opacity: 1;
+      }
+      .sp.lit .ico {
+        border-color: #8fa3bf;
+      }
+      /* recognized and ready to cast */
+      .sp.rdy .ico {
+        border-color: #7fffb0;
+        box-shadow: 0 0 14px 2px #7fffb066;
+      }
+      .sp.cast .emo {
+        transform: scale(1.35);
+        opacity: 1;
+      }
+      #hud[data-compact] .sp {
+        width: clamp(36px, 5vh, 44px);
+      }
+      #hud[data-compact] .sp .nm {
+        display: none;
+      }
+      #hud[data-compact] .plate {
+        padding: 2px 8px;
+        gap: 6px;
+      }
+      #hud[data-compact] .plate .tag {
+        font-size: 12px;
+      }
+      #hud[data-compact] .plate .hpnum {
+        font-size: 12px;
+      }
+      #hud[data-compact] .plate .hpbar {
+        height: 8px;
+      }
+
+      /* ---------- arena strip ---------- */
+      #arena .beam {
+        position: absolute;
+        opacity: 0.9;
+      }
+      #hud[data-orient="stack"] #arena .beam {
+        left: 10%;
+        right: 10%;
+        top: 50%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #4df0ff88, transparent);
+      }
+      #hud[data-orient="side"] #arena .beam {
+        top: 10%;
+        bottom: 10%;
+        left: 50%;
+        width: 2px;
+        background: linear-gradient(180deg, transparent, #4df0ff88, transparent);
+      }
+      #toasts {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+      }
+      .toast {
+        background: #0a1020d9;
+        border: 1px solid #fff3;
+        padding: 2px 10px;
+        border-radius: 8px;
+        font-size: clamp(11px, 1.6vh, 14px);
+        white-space: nowrap;
+        max-width: min(60vw, 340px);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        animation: tin 0.18s ease-out;
+      }
+      #hud[data-compact] .toast {
+        font-size: 12px;
+      }
+      .toast.out {
+        transition: opacity 0.3s;
+        opacity: 0;
+      }
+      @keyframes tin {
+        from {
+          transform: translateY(6px);
+          opacity: 0;
+        }
+      }
+      #countdown {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: clamp(30px, 7vh, 64px);
+        font-weight: 800;
+        text-shadow: 0 2px 18px #000;
+      }
+      #countdown:empty {
+        display: none;
+      }
+
+      /* ---------- frame edge indicator ---------- */
+      #frame-edge i {
+        position: absolute;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      #frame-edge i.on {
+        opacity: 1;
+      }
+      #frame-edge .t {
+        top: 0; left: 0; right: 0; height: 8px;
+        background: linear-gradient(#ffd24dcc, transparent);
+      }
+      #frame-edge .b {
+        bottom: 0; left: 0; right: 0; height: 8px;
+        background: linear-gradient(0deg, #ffd24dcc, transparent);
+      }
+      #frame-edge .l {
+        top: 0; bottom: 0; left: 0; width: 8px;
+        background: linear-gradient(90deg, #ffd24dcc, transparent);
+      }
+      #frame-edge .r {
+        top: 0; bottom: 0; right: 0; width: 8px;
+        background: linear-gradient(270deg, #ffd24dcc, transparent);
+      }
+
+      #fs {
+        padding: 4px 9px;
         font-size: 16px;
+        line-height: 1;
+        background: #0009;
+        pointer-events: auto;
       }
+      #rotate-hint {
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0a1020d9;
+        border: 1px solid #fff3;
+        border-radius: 8px;
+        padding: 4px 12px;
+        font-size: 12px;
+        display: none;
+      }
+      #rotate-hint.on {
+        display: block;
+      }
+
+      /* ---------- overlays ---------- */
+      .overlay {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 5;
+      }
+      .overlay[hidden] {
+        display: none;
+      }
+      .overlay .box {
+        pointer-events: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        background: #050a18e0;
+        border: 1px solid #fff2;
+        border-radius: 12px;
+        padding: 14px 18px;
+        text-align: center;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+      .overlay.fixed {
+        position: fixed;
+        inset: 0;
+        background: #0008;
+        z-index: 20;
+      }
+      #loading .box {
+        pointer-events: auto;
+      }
+      .spinner {
+        width: 26px;
+        height: 26px;
+        border: 3px solid #fff3;
+        border-top-color: #4df0ff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #wcode {
+        font-size: clamp(24px, 5vh, 40px);
+        font-weight: 800;
+        letter-spacing: 0.15em;
+      }
+      #qr {
+        width: 132px;
+        height: 132px;
+        image-rendering: pixelated;
+        border-radius: 8px;
+      }
+      .whint,
+      #over-hint {
+        font-size: 12px;
+        opacity: 0.7;
+      }
+      #over-title {
+        font-size: clamp(40px, 9vh, 72px);
+        font-weight: 800;
+      }
+      #over-hp {
+        font-size: clamp(14px, 2.4vh, 18px);
+        opacity: 0.85;
+      }
+      .overlay .row {
+        display: flex;
+        gap: 10px;
+      }
+      #rematch {
+        background: #2a4dd7;
+        border: none;
+        font-weight: 700;
+      }
+      #rematch[disabled] {
+        background: #222;
+        color: #888;
+      }
+
+      /* ---------- lobby ---------- */
       #join {
         position: fixed;
         inset: 0;
@@ -76,18 +431,16 @@
         align-items: center;
         justify-content: center;
         background: #000c;
+        z-index: 30;
+      }
+      #join[hidden] {
+        display: none;
       }
       #join input,
       #join button {
-        font: inherit;
         padding: 10px 16px;
-        border-radius: 8px;
-        border: 1px solid #fff4;
-        background: #111;
-        color: #fff;
       }
       #join button {
-        cursor: pointer;
         background: #2a4dd7;
         border: none;
         font-weight: 700;
@@ -96,27 +449,79 @@
         display: flex;
         gap: 8px;
       }
-      #ko {
-        position: fixed;
-        inset: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        font-size: 64px;
-        font-weight: 800;
-        text-shadow: 0 2px 24px #000;
-        background: #0006;
+      #hint {
+        font-size: clamp(11px, 1.6vh, 14px);
+        opacity: 0.75;
+        max-width: 92vw;
+        text-align: center;
       }
     </style>
   </head>
   <body>
     <video id="video" playsinline muted></video>
     <canvas id="gl"></canvas>
-    <div class="hud" id="hp-me"><div class="bar" style="width: 100%"></div></div>
-    <div class="hud" id="hp-foe"><div class="bar" style="width: 100%"></div></div>
-    <div class="hud" id="status">…</div>
-    <div class="hud" id="spell"></div>
-    <div id="ko"></div>
+
+    <div id="hud" hidden>
+      <div class="plate foe" id="plate-foe">
+        <span class="tag">СОПЕРНИК</span>
+        <div class="hpbar"><i style="width: 100%"></i></div>
+        <b class="hpnum">100</b>
+      </div>
+      <div id="hud-me">
+        <div class="plate me" id="plate-me">
+          <span class="tag">ТЫ</span>
+          <div class="hpbar"><i style="width: 100%"></i></div>
+          <b class="hpnum">100</b>
+        </div>
+        <div id="spellbar"></div>
+      </div>
+      <div id="arena">
+        <div class="beam"></div>
+        <div id="toasts"></div>
+        <div id="countdown"></div>
+      </div>
+      <div id="frame-edge"><i class="t"></i><i class="r"></i><i class="b"></i><i class="l"></i></div>
+      <button id="fs" title="Полный экран">⛶</button>
+      <div id="rotate-hint">Поверни телефон вертикально</div>
+    </div>
+
+    <div id="loading" class="overlay" hidden>
+      <div class="box">
+        <div class="spinner"></div>
+        <div id="loading-text">…</div>
+        <button id="retry" hidden>Повторить</button>
+      </div>
+    </div>
+
+    <div id="waiting" class="overlay" hidden>
+      <div class="box">
+        <div class="whint">Код комнаты</div>
+        <div id="wcode"></div>
+        <button id="copy">Скопировать ссылку</button>
+        <canvas id="qr" width="132" height="132"></canvas>
+        <div class="whint">жду соперника — касты работают в тренировочном режиме</div>
+      </div>
+    </div>
+
+    <div id="paused" class="overlay" hidden>
+      <div class="box">
+        <div>Соперник отключился.<br />Жду переподключения…</div>
+        <button id="leave-pause" hidden>Выйти</button>
+      </div>
+    </div>
+
+    <div id="over" class="overlay fixed" hidden>
+      <div class="box">
+        <div id="over-title"></div>
+        <div id="over-hp"></div>
+        <div class="row">
+          <button id="rematch">Реванш</button>
+          <button id="exit">Выйти</button>
+        </div>
+        <div id="over-hint"></div>
+      </div>
+    </div>
+
     <div id="join">
       <h1>Hand Duel</h1>
       <div class="row">
@@ -124,10 +529,9 @@
         <button id="go">Играть</button>
       </div>
       <button id="create">Создать комнату</button>
-      <div id="hint">
-        ✊ файербол · ✌ лёд · 🤟 шторм · 👍 хил · 👆 болт · ✋ щит · 🤲 рамка двумя руками — портал
-      </div>
+      <div id="hint"></div>
     </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
